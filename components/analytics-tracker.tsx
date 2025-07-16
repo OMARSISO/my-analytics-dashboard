@@ -1,9 +1,17 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useRef } from "react"
 
 export function AnalyticsTracker() {
+  const hasSentRequest = useRef(false)
+
   useEffect(() => {
+    // Этот флаг предотвращает повторный вызов в React.StrictMode в режиме разработки
+    if (hasSentRequest.current) {
+      return
+    }
+    hasSentRequest.current = true
+
     // Записываем посещение при загрузке страницы
     const recordVisit = async () => {
       try {
