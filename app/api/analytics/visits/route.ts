@@ -65,6 +65,8 @@ async function getCountryFromIP(ip: string) {
   }
 }
 
+const useKVResult = useKV()
+
 export async function POST(request: NextRequest) {
   const userAgent = request.headers.get("user-agent") || ""
   const ip = request.headers.get("x-forwarded-for") || request.headers.get("x-real-ip") || "127.0.0.1"
@@ -84,7 +86,6 @@ export async function POST(request: NextRequest) {
     timestamp: Date.now(),
   }
 
-  const useKVResult = useKV()
   const redisClient = await getRedisClient()
 
   if (useKVResult && redisClient) {
@@ -119,12 +120,32 @@ export async function POST(request: NextRequest) {
 export async function DELETE() {
   try {
     const redis = await getRedisClient()
-    if (useKV() && redis) {
-      await redis.del(["visits", "unique_visitors"])
-    } else {
-      clearInMemoryData()
+    if (useKVResult && redis) {
+      // Находим все ключи, отслеживающие недавние посещения
+      const stream = redis.scanIterator({
+        TYPE: "string",
+        MATCH: "visit:*",
+        COUNT: 100, // Обрабатываем пачками для производительности
+      })
+
+      const keysToDelete: string[] = ["visits", "unique_visitors"]
+      for await (const key of stream) {
+        keysToDelete.push(key)
+      }
+
+      // Удаляем все найденные ключи за один раз
+      if (keysToDelete.length > 2) {
+        await redis.del(keysToDelete)
+      } else {
+        // Если ключей visit:* не найдено, удаляем только основные
+        await redis.del(["visits", "unique_visitors"])
+      }
     }
-    return NextResponse.json({ success: true, message: "Все данные о посещениях очищены" })
+
+    // Также очищаем данные в памяти на случай, если KV не используется
+    clearInMemoryData()
+
+    return NextResponse.json({ success: true, message: "Все данные о посещениях и флаги IP очищены" })
   } catch (error) {
     console.error("Ошибка в DELETE /api/analytics/visits:", error)
     const errorMessage = error instanceof Error ? error.message : "Произошла неизвестная ошибка"
