@@ -22,6 +22,12 @@ export function AnalyticsTracker() {
           },
         })
 
+        // Проверяем, успешен ли ответ, ПЕРЕД тем как парсить JSON
+        if (!response.ok) {
+          const errorText = await response.text()
+          throw new Error(`API Error (${response.status}): ${errorText}`)
+        }
+
         const result = await response.json()
         console.log("📊 Analytics response:", result)
 
@@ -46,7 +52,7 @@ export function AnalyticsTracker() {
 // Функция для записи скачивания
 export const recordDownload = async (fileName: string, fileSize: string) => {
   try {
-    await fetch("/api/analytics/downloads", {
+    const response = await fetch("/api/analytics/downloads", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -56,6 +62,11 @@ export const recordDownload = async (fileName: string, fileSize: string) => {
         fileSize,
       }),
     })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      throw new Error(`API Error on download (${response.status}): ${errorText}`)
+    }
   } catch (error) {
     console.error("Failed to record download:", error)
   }

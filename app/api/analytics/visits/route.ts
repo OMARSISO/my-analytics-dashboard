@@ -1,24 +1,25 @@
 export const revalidate = 0
 import { type NextRequest, NextResponse } from "next/server"
-import { kv } from "@vercel/kv"
+import { getRedisClient } from "@/lib/redis"
 import { useKV, inMemoryVisits, inMemoryUniqueVisitors, clearInMemoryData } from "@/lib/analytics-data"
 
+const browsers = [
+  { name: "Chrome", pattern: /Chrome\/(\d+)/ },
+  { name: "Firefox", pattern: /Firefox\/(\d+)/ },
+  { name: "Safari", pattern: /Safari\/(\d+)/ },
+  { name: "Edge", pattern: /Edg\/(\d+)/ },
+  { name: "Opera", pattern: /OPR\/(\d+)/ },
+]
+const os = [
+  { name: "Windows 11", pattern: /Windows NT 10\.0.*Win64/ },
+  { name: "Windows 10", pattern: /Windows NT 10\.0/ },
+  { name: "macOS", pattern: /Mac OS X/ },
+  { name: "Linux", pattern: /Linux/ },
+  { name: "Android", pattern: /Android/ },
+  { name: "iOS", pattern: /iPhone|iPad/ },
+]
+
 function parseUserAgent(userAgent: string) {
-  const browsers = [
-    { name: "Chrome", pattern: /Chrome\/(\d+)/ },
-    { name: "Firefox", pattern: /Firefox\/(\d+)/ },
-    { name: "Safari", pattern: /Safari\/(\d+)/ },
-    { name: "Edge", pattern: /Edg\/(\d+)/ },
-    { name: "Opera", pattern: /OPR\/(\d+)/ },
-  ]
-  const os = [
-    { name: "Windows 11", pattern: /Windows NT 10\.0.*Win64/ },
-    { name: "Windows 10", pattern: /Windows NT 10\.0/ },
-    { name: "macOS", pattern: /Mac OS X/ },
-    { name: "Linux", pattern: /Linux/ },
-    { name: "Android", pattern: /Android/ },
-    { name: "iOS", pattern: /iPhone|iPad/ },
-  ]
   let browserName = "Unknown",
     osName = "Unknown"
   for (const browser of browsers) {
@@ -53,6 +54,8 @@ async function getCountryFromIP(ip: string) {
   }
 }
 
+const redisClient = await getRedisClient()
+
 export async function POST(request: NextRequest) {
   try {
     const userAgent = request.headers.get("user-agent") || ""
@@ -73,16 +76,17 @@ export async function POST(request: NextRequest) {
       timestamp: Date.now(),
     }
 
-    if (useKV) {
+    const redis = redisClient
+    if (useKV() && redis) {
       const recentVisitKey = `visit:${cleanIP}`
-      const hasVisitedRecently = await kv.get(recentVisitKey)
+      const hasVisitedRecently = await redis.get(recentVisitKey)
       if (hasVisitedRecently) {
         return NextResponse.json({ success: true, message: "Recent visit found - not recorded", duplicate: true })
       }
-      await kv.lpush("visits", JSON.stringify(visitData))
-      await kv.ltrim("visits", 0, 999)
-      await kv.sadd("unique_visitors", cleanIP)
-      await kv.set(recentVisitKey, "true", { ex: 24 * 60 * 60 })
+      await redis.lPush("visits", JSON.stringify(visitData))
+      await redis.lTrim("visits", 0, 999)
+      await redis.sAdd("unique_visitors", cleanIP)
+      await redis.set(recentVisitKey, "true", { EX: 24 * 60 * 60 }) // 24 hours expiration
     } else {
       const twentyFourHoursAgo = Date.now() - 24 * 60 * 60 * 1000
       const recentVisit = inMemoryVisits.find((visit) => visit.ip === cleanIP && visit.timestamp > twentyFourHoursAgo)
@@ -95,19 +99,30 @@ export async function POST(request: NextRequest) {
     }
     return NextResponse.json({ success: true, data: visitData })
   } catch (error) {
-    return NextResponse.json({ error: "Failed to record visit" }, { status: 500 })
+    console.error("Error in POST /api/analytics/visits:", error)
+    const errorMessage = error instanceof Error ? error.message : "An unknown error occurred"
+    return NextResponse.json(
+      { success: false, error: "Failed to record visit", details: errorMessage },
+      { status: 500 },
+    )
   }
 }
 
 export async function DELETE() {
   try {
-    if (useKV) {
-      await kv.del("visits", "unique_visitors")
+    const redis = redisClient
+    if (useKV() && redis) {
+      await redis.del(["visits", "unique_visitors"])
     } else {
       clearInMemoryData()
     }
     return NextResponse.json({ success: true, message: "All visits data cleared" })
   } catch (error) {
-    return NextResponse.json({ error: "Failed to delete visits" }, { status: 500 })
+    console.error("Error in DELETE /api/analytics/visits:", error)
+    const errorMessage = error instanceof Error ? error.message : "An unknown error occurred"
+    return NextResponse.json(
+      { success: false, error: "Failed to delete visits", details: errorMessage },
+      { status: 500 },
+    )
   }
 }

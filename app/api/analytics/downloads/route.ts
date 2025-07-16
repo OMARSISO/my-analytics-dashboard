@@ -1,6 +1,6 @@
 export const revalidate = 0
 import { type NextRequest, NextResponse } from "next/server"
-import { kv } from "@vercel/kv"
+import { getRedisClient } from "@/lib/redis"
 import { useKV, inMemoryDownloads, clearInMemoryData } from "@/lib/analytics-data"
 
 function parseUserAgent(userAgent: string) {
@@ -54,6 +54,7 @@ async function getCountryFromIP(ip: string) {
 }
 
 export async function POST(request: NextRequest) {
+  const redis = await getRedisClient() // Moved to top level to avoid conditional hook call
   try {
     const body = await request.json()
     const { fileName, fileSize } = body
@@ -77,9 +78,9 @@ export async function POST(request: NextRequest) {
       timestamp: Date.now(),
     }
 
-    if (useKV) {
-      await kv.lpush("downloads", JSON.stringify(downloadData))
-      await kv.ltrim("downloads", 0, 999)
+    if (useKV() && redis) {
+      await redis.lPush("downloads", JSON.stringify(downloadData))
+      await redis.lTrim("downloads", 0, 999)
     } else {
       inMemoryDownloads.push(downloadData)
       if (inMemoryDownloads.length > 1000) inMemoryDownloads.shift()
@@ -87,21 +88,30 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true, data: downloadData })
   } catch (error) {
-    return NextResponse.json({ error: "Failed to record download" }, { status: 500 })
+    console.error("Error in POST /api/analytics/downloads:", error)
+    const errorMessage = error instanceof Error ? error.message : "An unknown error occurred"
+    return NextResponse.json(
+      { success: false, error: "Failed to record download", details: errorMessage },
+      { status: 500 },
+    )
   }
 }
 
 export async function DELETE() {
   try {
-    if (useKV) {
-      await kv.del("downloads")
+    const redis = await getRedisClient()
+    if (useKV() && redis) {
+      await redis.del("downloads")
     } else {
-      // Since downloads are part of the general in-memory clear,
-      // we call the central function.
       clearInMemoryData()
     }
     return NextResponse.json({ success: true, message: "All downloads data cleared" })
   } catch (error) {
-    return NextResponse.json({ error: "Failed to delete downloads" }, { status: 500 })
+    console.error("Error in DELETE /api/analytics/downloads:", error)
+    const errorMessage = error instanceof Error ? error.message : "An unknown error occurred"
+    return NextResponse.json(
+      { success: false, error: "Failed to delete downloads", details: errorMessage },
+      { status: 500 },
+    )
   }
 }

@@ -1,9 +1,8 @@
-import { kv } from "@vercel/kv"
+import { getRedisClient } from "./redis"
 
-export const useKV = !!process.env.KV_REST_API_URL
+export const useKV = () => !!process.env.REDIS_URL
 
 // --- Centralized In-Memory Store ---
-// We define and export these so all modules share the same instance.
 export let inMemoryVisits: any[] = []
 export let inMemoryDownloads: any[] = []
 export let inMemoryUniqueVisitors: Set<string> = new Set()
@@ -29,50 +28,70 @@ function getStartTime(period: string): number {
   }
 }
 
+async function getVisitsFromMemory(startTime: number) {
+  const filteredVisits = inMemoryVisits.filter((visit) => visit.timestamp >= startTime)
+  filteredVisits.sort((a, b) => b.timestamp - a.timestamp)
+  return {
+    visits: filteredVisits,
+    total: filteredVisits.length,
+    uniqueVisitors: inMemoryUniqueVisitors.size,
+  }
+}
+
+async function getDownloadsFromMemory(startTime: number) {
+  const filteredDownloads = inMemoryDownloads.filter((download) => download.timestamp >= startTime)
+  filteredDownloads.sort((a, b) => b.timestamp - a.timestamp)
+  return {
+    downloads: filteredDownloads,
+    total: filteredDownloads.length,
+  }
+}
+
 export async function getVisits(period: string) {
   const startTime = getStartTime(period)
+  const redis = await getRedisClient()
 
-  if (useKV) {
-    const allVisitsRaw = await kv.lrange("visits", 0, -1)
-    const allVisits = allVisitsRaw.map((v) => JSON.parse(v as string))
-    const filteredVisits = allVisits.filter((visit) => visit.timestamp >= startTime)
-    filteredVisits.sort((a, b) => b.timestamp - a.timestamp)
-    const uniqueVisitorsCount = await kv.scard("unique_visitors")
-    return {
-      visits: filteredVisits,
-      total: filteredVisits.length,
-      uniqueVisitors: uniqueVisitorsCount,
+  if (useKV() && redis) {
+    try {
+      const allVisitsRaw = await redis.lRange("visits", 0, -1)
+      const allVisits = allVisitsRaw.map((v) => JSON.parse(v))
+      const filteredVisits = allVisits.filter((visit) => visit.timestamp >= startTime)
+      filteredVisits.sort((a, b) => b.timestamp - a.timestamp)
+      const uniqueVisitorsCount = await redis.sCard("unique_visitors")
+      return {
+        visits: filteredVisits,
+        total: filteredVisits.length,
+        uniqueVisitors: uniqueVisitorsCount,
+      }
+    } catch (error) {
+      console.error("Ошибка Redis в getVisits:", error)
+      return getVisitsFromMemory(startTime) // Резервный вариант
     }
   } else {
-    const filteredVisits = inMemoryVisits.filter((visit) => visit.timestamp >= startTime)
-    filteredVisits.sort((a, b) => b.timestamp - a.timestamp)
-    return {
-      visits: filteredVisits,
-      total: filteredVisits.length,
-      uniqueVisitors: inMemoryUniqueVisitors.size,
-    }
+    return getVisitsFromMemory(startTime)
   }
 }
 
 export async function getDownloads(period: string) {
   const startTime = getStartTime(period)
+  const redis = await getRedisClient()
 
-  if (useKV) {
-    const allDownloadsRaw = await kv.lrange("downloads", 0, -1)
-    const allDownloads = allDownloadsRaw.map((d) => JSON.parse(d as string))
-    const filteredDownloads = allDownloads.filter((download) => download.timestamp >= startTime)
-    filteredDownloads.sort((a, b) => b.timestamp - a.timestamp)
-    return {
-      downloads: filteredDownloads,
-      total: filteredDownloads.length,
+  if (useKV() && redis) {
+    try {
+      const allDownloadsRaw = await redis.lRange("downloads", 0, -1)
+      const allDownloads = allDownloadsRaw.map((d) => JSON.parse(d))
+      const filteredDownloads = allDownloads.filter((download) => download.timestamp >= startTime)
+      filteredDownloads.sort((a, b) => b.timestamp - a.timestamp)
+      return {
+        downloads: filteredDownloads,
+        total: filteredDownloads.length,
+      }
+    } catch (error) {
+      console.error("Ошибка Redis в getDownloads:", error)
+      return getDownloadsFromMemory(startTime) // Резервный вариант
     }
   } else {
-    const filteredDownloads = inMemoryDownloads.filter((download) => download.timestamp >= startTime)
-    filteredDownloads.sort((a, b) => b.timestamp - a.timestamp)
-    return {
-      downloads: filteredDownloads,
-      total: filteredDownloads.length,
-    }
+    return getDownloadsFromMemory(startTime)
   }
 }
 

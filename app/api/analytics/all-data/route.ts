@@ -46,18 +46,29 @@ export async function GET(request: NextRequest) {
     })
   } catch (error) {
     console.error("Error getting all-data:", error)
+    const errorMessage = error instanceof Error ? error.message : "An unknown error occurred"
     return NextResponse.json(
       {
-        metrics: { visitors: "0", users: "0", downloads: "0", conversion: "0.0%" },
+        success: false,
+        error: "Failed to load analytics data",
+        details: errorMessage,
+        // Возвращаем пустую структуру метрик, чтобы UI не ломался
+        metrics: {
+          visitors: "0",
+          visitorsChange: "+0%",
+          users: "0",
+          usersChange: "+0%",
+          downloads: "0",
+          downloadsChange: "+0%",
+          conversion: "0.0%",
+          conversionChange: "+0%",
+        },
         chartData: [],
         visitsLog: [],
         downloadsLog: [],
       },
       {
         status: 500,
-        headers: {
-          "Content-Type": "application/json",
-        },
       },
     )
   }

@@ -536,6 +536,16 @@ export default function Dashboard() {
         fetch(`/api/analytics/status`),
       ])
 
+      // Проверяем ответы ПЕРЕД парсингом JSON
+      if (!allDataRes.ok) {
+        const errorText = await allDataRes.text()
+        throw new Error(`Failed to fetch analytics data (${allDataRes.status}): ${errorText}`)
+      }
+      if (!statusRes.ok) {
+        const errorText = await statusRes.text()
+        throw new Error(`Failed to fetch status (${statusRes.status}): ${errorText}`)
+      }
+
       const allData = await allDataRes.json()
       const statusData = await statusRes.json()
 
@@ -546,6 +556,20 @@ export default function Dashboard() {
       setUseKV(statusData.useKV)
     } catch (error) {
       console.error("Failed to load analytics data:", error)
+      // Устанавливаем пустые значения при ошибке, чтобы UI не ломался
+      setMetrics({
+        visitors: "0",
+        visitorsChange: "+0%",
+        users: "0",
+        usersChange: "+0%",
+        downloads: "0",
+        downloadsChange: "+0%",
+        conversion: "0%",
+        conversionChange: "+0%",
+      })
+      setChartData([])
+      setVisitsLog([])
+      setDownloadsLog([])
     } finally {
       setLoading(false)
       setIsLoaded(true)
@@ -694,7 +718,7 @@ export default function Dashboard() {
               title="Посещения"
               value={metrics.visitors}
               change={metrics.visitorsChange}
-              changeType="positive"
+              changeType={(metrics.visitorsChange || "").startsWith("+") ? "positive" : "negative"}
               icon={<Eye className="h-5 w-5" />}
               gradient="from-blue-500 to-cyan-500"
               delay={100}
@@ -703,7 +727,7 @@ export default function Dashboard() {
               title="Уникальные пользователи"
               value={metrics.users}
               change={metrics.usersChange}
-              changeType="positive"
+              changeType={(metrics.usersChange || "").startsWith("+") ? "positive" : "negative"}
               icon={<Users className="h-5 w-5" />}
               gradient="from-purple-500 to-pink-500"
               delay={200}
@@ -712,7 +736,7 @@ export default function Dashboard() {
               title="Скачивания"
               value={metrics.downloads}
               change={metrics.downloadsChange}
-              changeType={metrics.downloadsChange.startsWith("+") ? "positive" : "negative"}
+              changeType={(metrics.downloadsChange || "").startsWith("+") ? "positive" : "negative"}
               icon={<Download className="h-5 w-5" />}
               gradient="from-emerald-500 to-teal-500"
               delay={300}
@@ -721,7 +745,7 @@ export default function Dashboard() {
               title="Конверсия"
               value={metrics.conversion}
               change={metrics.conversionChange}
-              changeType="positive"
+              changeType={(metrics.conversionChange || "").startsWith("+") ? "positive" : "negative"}
               icon={<Target className="h-5 w-5" />}
               gradient="from-orange-500 to-red-500"
               delay={400}
