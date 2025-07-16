@@ -531,23 +531,18 @@ export default function Dashboard() {
   const loadAllData = async (currentPeriod: string) => {
     setLoading(true)
     try {
-      const [metricsRes, chartRes, visitsRes, downloadsRes, statusRes] = await Promise.all([
-        fetch(`/api/analytics/metrics?period=${currentPeriod}`),
-        fetch(`/api/analytics/chart?period=${currentPeriod}`),
-        fetch(`/api/analytics/visits?period=${currentPeriod}`),
-        fetch(`/api/analytics/downloads?period=${currentPeriod}`),
+      const [allDataRes, statusRes] = await Promise.all([
+        fetch(`/api/analytics/all-data?period=${currentPeriod}`),
         fetch(`/api/analytics/status`),
       ])
-      const metricsData = await metricsRes.json()
-      const chartData = await chartRes.json()
-      const visitsData = await visitsRes.json()
-      const downloadsData = await downloadsRes.json()
+
+      const allData = await allDataRes.json()
       const statusData = await statusRes.json()
 
-      setMetrics(metricsData)
-      setChartData(chartData.data || [])
-      setVisitsLog(visitsData.visits || [])
-      setDownloadsLog(downloadsData.downloads || [])
+      setMetrics(allData.metrics)
+      setChartData(allData.chartData || [])
+      setVisitsLog(allData.visitsLog || [])
+      setDownloadsLog(allData.downloadsLog || [])
       setUseKV(statusData.useKV)
     } catch (error) {
       console.error("Failed to load analytics data:", error)
@@ -853,7 +848,7 @@ export default function Dashboard() {
       </div>
 
       <div className="fixed bottom-4 right-4 text-xs font-mono text-gray-600 bg-gray-900/50 px-2 py-1 rounded-md border border-gray-700/50">
-        v0.1.2
+        v0.1.3
       </div>
     </div>
   )

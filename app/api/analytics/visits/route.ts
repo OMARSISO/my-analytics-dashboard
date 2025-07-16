@@ -1,7 +1,7 @@
 export const revalidate = 0
 import { type NextRequest, NextResponse } from "next/server"
 import { kv } from "@vercel/kv"
-import { getVisits, useKV, inMemoryVisits, inMemoryUniqueVisitors, clearInMemoryData } from "@/lib/analytics-data"
+import { useKV, inMemoryVisits, inMemoryUniqueVisitors, clearInMemoryData } from "@/lib/analytics-data"
 
 function parseUserAgent(userAgent: string) {
   const browsers = [
@@ -96,17 +96,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, data: visitData })
   } catch (error) {
     return NextResponse.json({ error: "Failed to record visit" }, { status: 500 })
-  }
-}
-
-export async function GET(request: NextRequest) {
-  try {
-    const { searchParams } = new URL(request.url)
-    const period = searchParams.get("period") || "day"
-    const data = await getVisits(period)
-    return NextResponse.json({ ...data, period })
-  } catch (error) {
-    return NextResponse.json({ visits: [], total: 0, uniqueVisitors: 0, period: "day" })
   }
 }
 
