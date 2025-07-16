@@ -15,11 +15,13 @@ export function AnalyticsTracker() {
     // Записываем посещение при загрузке страницы
     const recordVisit = async () => {
       try {
+        console.log("📊 AnalyticsTracker: Sending visit record request...")
         const response = await fetch("/api/analytics/visits", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
+          cache: "no-store", // <--- Добавьте эту строку
         })
 
         // Проверяем, успешен ли ответ, ПЕРЕД тем как парсить JSON
@@ -32,7 +34,7 @@ export function AnalyticsTracker() {
         console.log("📊 Analytics response:", result)
 
         if (result.duplicate) {
-          console.log("❌ Duplicate visit detected - not recorded:", result)
+          console.log("❌ Duplicate visit detected - not recorded:", result.message)
         } else if (result.success) {
           console.log("✅ Visit recorded successfully:", result.data)
         } else {

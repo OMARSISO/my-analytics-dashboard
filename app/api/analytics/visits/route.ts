@@ -3,6 +3,8 @@ import { type NextRequest, NextResponse } from "next/server"
 import { getRedisClient } from "@/lib/redis"
 import { useKV, inMemoryVisits, inMemoryUniqueVisitors, clearInMemoryData } from "@/lib/analytics-data"
 
+const useKVResult = useKV()
+
 const handleInMemoryVisit = (visitData: any) => {
   const twentyFourHoursAgo = Date.now() - 24 * 60 * 60 * 1000
   const recentVisit = inMemoryVisits.find((visit) => visit.ip === visitData.ip && visit.timestamp > twentyFourHoursAgo)
@@ -65,12 +67,13 @@ async function getCountryFromIP(ip: string) {
   }
 }
 
-const useKVResult = useKV()
-
 export async function POST(request: NextRequest) {
   const userAgent = request.headers.get("user-agent") || ""
   const ip = request.headers.get("x-forwarded-for") || request.headers.get("x-real-ip") || "127.0.0.1"
   const cleanIP = ip.split(",")[0].trim()
+
+  console.log(`[VISIT POST] Received request for IP: ${cleanIP}`)
+
   const { browser, os } = parseUserAgent(userAgent)
   const { country, countryName } = await getCountryFromIP(cleanIP)
   const visitData = {
@@ -91,23 +94,29 @@ export async function POST(request: NextRequest) {
   if (useKVResult && redisClient) {
     try {
       const recentVisitKey = `visit:${cleanIP}`
+      console.log(`[VISIT POST] Checking for recent visit with key: ${recentVisitKey}`)
       const hasVisitedRecently = await redisClient.get(recentVisitKey)
+
       if (hasVisitedRecently) {
+        console.log(`[VISIT POST] Duplicate visit detected for IP ${cleanIP}. Key value: ${hasVisitedRecently}`)
         return NextResponse.json({ success: true, message: "Recent visit found - not recorded", duplicate: true })
       }
+
+      console.log(`[VISIT POST] No recent visit found for IP ${cleanIP}. Recording new visit.`)
       await redisClient.lPush("visits", JSON.stringify(visitData))
       await redisClient.lTrim("visits", 0, 999)
       await redisClient.sAdd("unique_visitors", cleanIP)
       await redisClient.set(recentVisitKey, "true", { EX: 24 * 60 * 60 })
+      console.log(`[VISIT POST] Successfully recorded visit and set TTL key for IP ${cleanIP}.`)
     } catch (redisError) {
-      console.error("Ошибка операции Redis, используется резервное хранилище в памяти для посещения:", redisError)
+      console.error("[VISIT POST] Redis error, falling back to in-memory:", redisError)
       const { duplicate } = handleInMemoryVisit(visitData)
       if (duplicate) {
         return NextResponse.json({ success: true, message: "Recent visit found - not recorded", duplicate: true })
       }
     }
   } else {
-    console.warn("Клиент Redis недоступен, используется резервное хранилище в памяти для посещения.")
+    console.warn("[VISIT POST] Redis client not available, using in-memory store.")
     const { duplicate } = handleInMemoryVisit(visitData)
     if (duplicate) {
       return NextResponse.json({ success: true, message: "Recent visit found - not recorded", duplicate: true })
@@ -118,14 +127,15 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE() {
+  console.log("[VISIT DELETE] Received request to clear statistics.")
   try {
     const redis = await getRedisClient()
     if (useKVResult && redis) {
-      // Находим все ключи, отслеживающие недавние посещения
+      console.log("[VISIT DELETE] Redis client available. Scanning for visit keys...")
       const stream = redis.scanIterator({
         TYPE: "string",
         MATCH: "visit:*",
-        COUNT: 100, // Обрабатываем пачками для производительности
+        COUNT: 100,
       })
 
       const keysToDelete: string[] = ["visits", "unique_visitors"]
@@ -133,21 +143,24 @@ export async function DELETE() {
         keysToDelete.push(key)
       }
 
-      // Удаляем все найденные ключи за один раз
-      if (keysToDelete.length > 2) {
+      console.log(`[VISIT DELETE] Found ${keysToDelete.length - 2} visit IP keys to delete.`)
+      console.log("[VISIT DELETE] Keys to be deleted:", keysToDelete)
+
+      if (keysToDelete.length > 0) {
         await redis.del(keysToDelete)
+        console.log("[VISIT DELETE] Successfully deleted keys from Redis.")
       } else {
-        // Если ключей visit:* не найдено, удаляем только основные
-        await redis.del(["visits", "unique_visitors"])
+        console.log("[VISIT DELETE] No keys found to delete.")
       }
     }
 
-    // Также очищаем данные в памяти на случай, если KV не используется
+    // Also clear in-memory data as a fallback
     clearInMemoryData()
+    console.log("[VISIT DELETE] In-memory data cleared.")
 
     return NextResponse.json({ success: true, message: "Все данные о посещениях и флаги IP очищены" })
   } catch (error) {
-    console.error("Ошибка в DELETE /api/analytics/visits:", error)
+    console.error("[VISIT DELETE] Error during deletion:", error)
     const errorMessage = error instanceof Error ? error.message : "Произошла неизвестная ошибка"
     return NextResponse.json(
       { success: false, error: "Не удалось удалить посещения", details: errorMessage },
