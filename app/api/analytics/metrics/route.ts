@@ -1,27 +1,22 @@
 export const revalidate = 0
-
 import { type NextRequest, NextResponse } from "next/server"
+import { getVisits, getDownloads } from "@/lib/analytics-data"
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
   const period = searchParams.get("period") || "day"
 
   try {
-    // Получаем данные из других API
-    const visitsResponse = await fetch(`${request.nextUrl.origin}/api/analytics/visits?period=${period}`)
-    const downloadsResponse = await fetch(`${request.nextUrl.origin}/api/analytics/downloads?period=${period}`)
-
-    const visitsData = await visitsResponse.json()
-    const downloadsData = await downloadsResponse.json()
+    const visitsData = await getVisits(period)
+    const downloadsData = await getDownloads(period)
 
     const totalVisits = visitsData.total || 0
     const totalDownloads = downloadsData.total || 0
     const uniqueUsersCount = visitsData.uniqueVisitors || 0
 
-    // Расчет конверсии
     const conversion = totalVisits > 0 ? ((totalDownloads / totalVisits) * 100).toFixed(1) : "0.0"
 
-    // Расчет изменений (заглушка, в реальности сравнивать с предыдущим периодом)
+    // Mock changes
     const visitorsChange = "+" + (Math.random() * 20 + 5).toFixed(1) + "%"
     const usersChange = "+" + (Math.random() * 15 + 3).toFixed(1) + "%"
     const downloadsChange = (Math.random() > 0.7 ? "-" : "+") + (Math.random() * 10 + 1).toFixed(1) + "%"
@@ -39,15 +34,14 @@ export async function GET(request: NextRequest) {
     })
   } catch (error) {
     console.error("Error getting metrics:", error)
-    return NextResponse.json({
-      visitors: "0",
-      visitorsChange: "+0%",
-      users: "0",
-      usersChange: "+0%",
-      downloads: "0",
-      downloadsChange: "+0%",
-      conversion: "0%",
-      conversionChange: "+0%",
-    })
+    return NextResponse.json(
+      { error: "Failed to get metrics" },
+      {
+        status: 500,
+        headers: {
+          "Content-Type": "application/json",
+        },
+      },
+    )
   }
 }

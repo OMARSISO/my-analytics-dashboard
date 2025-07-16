@@ -1,6 +1,7 @@
 export const revalidate = 0
 import { type NextRequest, NextResponse } from "next/server"
 import { kv } from "@vercel/kv"
+import { getVisits } from "@/lib/analytics-data"
 
 // --- Fallback: In-memory store for environments without Vercel KV ---
 let inMemoryVisits: any[] = []
@@ -86,45 +87,27 @@ export async function POST(request: NextRequest) {
     }
 
     if (useKV) {
-      console.log(`[Vercel KV] 🔍 Processing visit from IP: ${cleanIP}`)
       const recentVisitKey = `visit:${cleanIP}`
       const hasVisitedRecently = await kv.get(recentVisitKey)
       if (hasVisitedRecently) {
-        console.log(`[Vercel KV] ❌ Recent visit found from IP: ${cleanIP} - skipping`)
         return NextResponse.json({ success: true, message: "Recent visit found - not recorded", duplicate: true })
       }
       await kv.lpush("visits", JSON.stringify(visitData))
       await kv.ltrim("visits", 0, 999)
       await kv.sadd("unique_visitors", cleanIP)
       await kv.set(recentVisitKey, "true", { ex: 24 * 60 * 60 })
-      const totalVisits = await kv.llen("visits")
-      const uniqueVisitorsCount = await kv.scard("unique_visitors")
-      console.log(`[Vercel KV] ✅ New visit recorded. Total visits: ${totalVisits}. Unique: ${uniqueVisitorsCount}`)
-      return NextResponse.json({ success: true, data: visitData, totalVisits, uniqueVisitors: uniqueVisitorsCount })
     } else {
-      console.log(`[In-Memory] 🔍 Processing visit from IP: ${cleanIP}`)
       const twentyFourHoursAgo = Date.now() - 24 * 60 * 60 * 1000
       const recentVisit = inMemoryVisits.find((visit) => visit.ip === cleanIP && visit.timestamp > twentyFourHoursAgo)
       if (recentVisit) {
-        console.log(`[In-Memory] ❌ Recent visit found from IP: ${cleanIP} - skipping`)
         return NextResponse.json({ success: true, message: "Recent visit found - not recorded", duplicate: true })
       }
       inMemoryVisits.push(visitData)
       if (inMemoryVisits.length > 1000) inMemoryVisits.shift()
       inMemoryUniqueVisitors.add(cleanIP)
-      console.log(
-        `[In-Memory] ✅ New visit recorded. Total visits: ${inMemoryVisits.length}. Unique: ${inMemoryUniqueVisitors.size}`,
-      )
-      return NextResponse.json({
-        success: true,
-        data: visitData,
-        totalVisits: inMemoryVisits.length,
-        uniqueVisitors: inMemoryUniqueVisitors.size,
-      })
     }
+    return NextResponse.json({ success: true, data: visitData })
   } catch (error) {
-    const storageType = useKV ? "Vercel KV" : "In-Memory"
-    console.error(`[${storageType}] ❌ Error recording visit:`, error)
     return NextResponse.json({ error: "Failed to record visit" }, { status: 500 })
   }
 }
@@ -133,53 +116,9 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const period = searchParams.get("period") || "day"
-    const now = Date.now()
-    let startTime: number
-    switch (period) {
-      case "day":
-        startTime = now - 24 * 60 * 60 * 1000
-        break
-      case "week":
-        startTime = now - 7 * 24 * 60 * 60 * 1000
-        break
-      case "month":
-        startTime = now - 30 * 24 * 60 * 60 * 1000
-        break
-      default:
-        startTime = 0
-    }
-
-    if (useKV) {
-      const allVisitsRaw = await kv.lrange("visits", 0, -1)
-      const allVisits = allVisitsRaw.map((v) => JSON.parse(v as string))
-      const filteredVisits = allVisits.filter((visit) => visit.timestamp >= startTime)
-      filteredVisits.sort((a, b) => b.timestamp - a.timestamp)
-      const uniqueVisitorsCount = await kv.scard("unique_visitors")
-      console.log(
-        `[Vercel KV] 📊 GET visits: Total stored: ${allVisits.length}, Filtered: ${filteredVisits.length}, Unique IPs: ${uniqueVisitorsCount}`,
-      )
-      return NextResponse.json({
-        visits: filteredVisits,
-        total: filteredVisits.length,
-        uniqueVisitors: uniqueVisitorsCount,
-        period,
-      })
-    } else {
-      const filteredVisits = inMemoryVisits.filter((visit) => visit.timestamp >= startTime)
-      filteredVisits.sort((a, b) => b.timestamp - a.timestamp)
-      console.log(
-        `[In-Memory] 📊 GET visits: Total stored: ${inMemoryVisits.length}, Filtered: ${filteredVisits.length}, Unique IPs: ${inMemoryUniqueVisitors.size}`,
-      )
-      return NextResponse.json({
-        visits: filteredVisits,
-        total: filteredVisits.length,
-        uniqueVisitors: inMemoryUniqueVisitors.size,
-        period,
-      })
-    }
+    const data = await getVisits(period)
+    return NextResponse.json({ ...data, period })
   } catch (error) {
-    const storageType = useKV ? "Vercel KV" : "In-Memory"
-    console.error(`[${storageType}] ❌ Error getting visits:`, error)
     return NextResponse.json({ visits: [], total: 0, uniqueVisitors: 0, period: "day" })
   }
 }
@@ -188,16 +127,12 @@ export async function DELETE() {
   try {
     if (useKV) {
       await kv.del("visits", "unique_visitors")
-      console.log("[Vercel KV] 🗑️ All visits data cleared")
     } else {
       inMemoryVisits = []
       inMemoryUniqueVisitors = new Set()
-      console.log("[In-Memory] 🗑️ All visits data cleared")
     }
     return NextResponse.json({ success: true, message: "All visits data cleared" })
   } catch (error) {
-    const storageType = useKV ? "Vercel KV" : "In-Memory"
-    console.error(`[${storageType}] ❌ Error deleting visits:`, error)
     return NextResponse.json({ error: "Failed to delete visits" }, { status: 500 })
   }
 }

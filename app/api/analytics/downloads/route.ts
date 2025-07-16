@@ -1,6 +1,7 @@
 export const revalidate = 0
 import { type NextRequest, NextResponse } from "next/server"
 import { kv } from "@vercel/kv"
+import { getDownloads } from "@/lib/analytics-data"
 
 // --- Fallback: In-memory store for environments without Vercel KV ---
 let inMemoryDownloads: any[] = []
@@ -89,22 +90,15 @@ export async function POST(request: NextRequest) {
     }
 
     if (useKV) {
-      console.log(`[Vercel KV] 📥 Processing download from IP: ${cleanIP}, File: ${fileName}`)
       await kv.lpush("downloads", JSON.stringify(downloadData))
       await kv.ltrim("downloads", 0, 999)
-      const totalDownloads = await kv.llen("downloads")
-      console.log(`[Vercel KV] ✅ Download recorded. Total downloads: ${totalDownloads}`)
     } else {
-      console.log(`[In-Memory] 📥 Processing download from IP: ${cleanIP}, File: ${fileName}`)
       inMemoryDownloads.push(downloadData)
       if (inMemoryDownloads.length > 1000) inMemoryDownloads.shift()
-      console.log(`[In-Memory] ✅ Download recorded. Total downloads: ${inMemoryDownloads.length}`)
     }
 
     return NextResponse.json({ success: true, data: downloadData })
   } catch (error) {
-    const storageType = useKV ? "Vercel KV" : "In-Memory"
-    console.error(`[${storageType}] ❌ Error recording download:`, error)
     return NextResponse.json({ error: "Failed to record download" }, { status: 500 })
   }
 }
@@ -113,42 +107,9 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const period = searchParams.get("period") || "day"
-    const now = Date.now()
-    let startTime: number
-    switch (period) {
-      case "day":
-        startTime = now - 24 * 60 * 60 * 1000
-        break
-      case "week":
-        startTime = now - 7 * 24 * 60 * 60 * 1000
-        break
-      case "month":
-        startTime = now - 30 * 24 * 60 * 60 * 1000
-        break
-      default:
-        startTime = 0
-    }
-
-    let filteredDownloads: any[]
-    if (useKV) {
-      const allDownloadsRaw = await kv.lrange("downloads", 0, -1)
-      const allDownloads = allDownloadsRaw.map((d) => JSON.parse(d as string))
-      filteredDownloads = allDownloads.filter((download) => download.timestamp >= startTime)
-      console.log(
-        `[Vercel KV] 📊 GET downloads: Total stored: ${allDownloads.length}, Filtered: ${filteredDownloads.length}`,
-      )
-    } else {
-      filteredDownloads = inMemoryDownloads.filter((download) => download.timestamp >= startTime)
-      console.log(
-        `[In-Memory] 📊 GET downloads: Total stored: ${inMemoryDownloads.length}, Filtered: ${filteredDownloads.length}`,
-      )
-    }
-
-    filteredDownloads.sort((a, b) => b.timestamp - a.timestamp)
-    return NextResponse.json({ downloads: filteredDownloads, total: filteredDownloads.length, period })
+    const data = await getDownloads(period)
+    return NextResponse.json({ ...data, period })
   } catch (error) {
-    const storageType = useKV ? "Vercel KV" : "In-Memory"
-    console.error(`[${storageType}] ❌ Error getting downloads:`, error)
     return NextResponse.json({ downloads: [], total: 0, period: "day" })
   }
 }
@@ -157,15 +118,11 @@ export async function DELETE() {
   try {
     if (useKV) {
       await kv.del("downloads")
-      console.log("[Vercel KV] 🗑️ All downloads data cleared")
     } else {
       inMemoryDownloads = []
-      console.log("[In-Memory] 🗑️ All downloads data cleared")
     }
     return NextResponse.json({ success: true, message: "All downloads data cleared" })
   } catch (error) {
-    const storageType = useKV ? "Vercel KV" : "In-Memory"
-    console.error(`[${storageType}] ❌ Error deleting downloads:`, error)
     return NextResponse.json({ error: "Failed to delete downloads" }, { status: 500 })
   }
 }

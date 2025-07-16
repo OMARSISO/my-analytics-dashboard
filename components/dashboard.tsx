@@ -718,7 +718,7 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div className="flex flex-col gap-8">
           <Card className="bg-gray-900/50 border-gray-800 backdrop-blur-sm">
             <CardHeader>
               <CardTitle className="flex items-center gap-3 text-white text-xl">

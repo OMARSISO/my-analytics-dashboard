@@ -1,121 +1,71 @@
 export const revalidate = 0
 import { type NextRequest, NextResponse } from "next/server"
-
-export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url)
-  const period = searchParams.get("period") || "day"
-
-  // Получаем реальные данные посещений и скачиваний
-  const visitsResponse = await fetch(`${request.nextUrl.origin}/api/analytics/visits?period=${period}`)
-  const downloadsResponse = await fetch(`${request.nextUrl.origin}/api/analytics/downloads?period=${period}`)
-
-  const visitsData = await visitsResponse.json()
-  const downloadsData = await downloadsResponse.json()
-
-  // Группируем данные по времени в зависимости от периода
-  const chartData = generateChartData(visitsData.visits || [], downloadsData.downloads || [], period)
-
-  return NextResponse.json({ data: chartData })
-}
+import { getVisits, getDownloads } from "@/lib/analytics-data"
 
 function generateChartData(visits: any[], downloads: any[], period: string) {
   const now = new Date()
-  const intervals: string[] = []
-  let format = ""
+  const intervals: { name: string; start: number; end: number }[] = []
 
   switch (period) {
     case "day":
-      // Последние 24 часа по часам
       for (let i = 23; i >= 0; i--) {
-        const hour = new Date(now.getTime() - i * 60 * 60 * 1000)
-        intervals.push(hour.getHours().toString().padStart(2, "0"))
+        const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours() - i, 59, 59, 999)
+        const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours() - i, 0, 0, 0)
+        intervals.push({
+          name: start.getHours().toString().padStart(2, "0"),
+          start: start.getTime(),
+          end: end.getTime(),
+        })
       }
-      format = "hour"
       break
-
     case "week":
-      // Последние 7 дней
       const days = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"]
       for (let i = 6; i >= 0; i--) {
-        const day = new Date(now.getTime() - i * 24 * 60 * 60 * 1000)
-        intervals.push(days[day.getDay()])
+        const date = new Date(now.getTime() - i * 24 * 60 * 60 * 1000)
+        const start = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0)
+        const end = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999)
+        intervals.push({ name: days[date.getDay()], start: start.getTime(), end: end.getTime() })
       }
-      format = "day"
       break
-
     case "month":
-      // Последние 30 дней
       for (let i = 29; i >= 0; i--) {
-        const day = new Date(now.getTime() - i * 24 * 60 * 60 * 1000)
-        intervals.push(day.getDate().toString())
+        const date = new Date(now.getTime() - i * 24 * 60 * 60 * 1000)
+        const start = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0)
+        const end = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999)
+        intervals.push({ name: date.getDate().toString(), start: start.getTime(), end: end.getTime() })
       }
-      format = "date"
       break
-
     case "all":
-      // Последние 12 месяцев
       const months = ["Янв", "Фев", "Мар", "Апр", "Май", "Июн", "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек"]
       for (let i = 11; i >= 0; i--) {
-        const month = new Date(now.getFullYear(), now.getMonth() - i, 1)
-        intervals.push(months[month.getMonth()])
+        const date = new Date(now.getFullYear(), now.getMonth() - i, 1)
+        const start = new Date(date.getFullYear(), date.getMonth(), 1)
+        const end = new Date(date.getFullYear(), date.getMonth() + 1, 0, 23, 59, 59, 999)
+        intervals.push({ name: months[date.getMonth()], start: start.getTime(), end: end.getTime() })
       }
-      format = "month"
       break
   }
 
-  // Группируем данные по интервалам
-  const chartData = intervals.map((interval) => {
-    let visitCount = 0
-    let downloadCount = 0
-
-    // Подсчитываем посещения для этого интервала
-    visits.forEach((visit) => {
-      if (matchesInterval(visit, interval, format)) {
-        visitCount++
-      }
-    })
-
-    // Подсчитываем скачивания для этого интервала
-    downloads.forEach((download) => {
-      if (matchesInterval(download, interval, format)) {
-        downloadCount++
-      }
-    })
-
-    return {
-      name: interval,
-      visitors: visitCount,
-      downloads: downloadCount,
-    }
+  return intervals.map(({ name, start, end }) => {
+    const visitCount = visits.filter((v) => v.timestamp >= start && v.timestamp <= end).length
+    const downloadCount = downloads.filter((d) => d.timestamp >= start && d.timestamp <= end).length
+    return { name, visitors: visitCount, downloads: downloadCount }
   })
-
-  return chartData
 }
 
-function matchesInterval(record: any, interval: string, format: string): boolean {
-  const recordDate = new Date(record.date + " " + record.time)
-  const now = new Date()
+export async function GET(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url)
+    const period = searchParams.get("period") || "day"
 
-  switch (format) {
-    case "hour":
-      const hour = recordDate.getHours().toString().padStart(2, "0")
-      return hour === interval && recordDate.toDateString() === now.toDateString()
+    const visitsData = await getVisits(period)
+    const downloadsData = await getDownloads(period)
 
-    case "day":
-      const days = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"]
-      const dayName = days[recordDate.getDay()]
-      return dayName === interval && recordDate >= new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+    const chartData = generateChartData(visitsData.visits, downloadsData.downloads, period)
 
-    case "date":
-      const date = recordDate.getDate().toString()
-      return date === interval && recordDate >= new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
-
-    case "month":
-      const months = ["Янв", "Фев", "Мар", "Апр", "Май", "Июн", "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек"]
-      const monthName = months[recordDate.getMonth()]
-      return monthName === interval && recordDate >= new Date(now.getFullYear() - 1, now.getMonth(), now.getDate())
-
-    default:
-      return false
+    return NextResponse.json({ data: chartData })
+  } catch (error) {
+    console.error("Error getting chart data:", error)
+    return NextResponse.json({ data: [] })
   }
 }
