@@ -1,14 +1,7 @@
 export const revalidate = 0
 import { type NextRequest, NextResponse } from "next/server"
 import { kv } from "@vercel/kv"
-import { getVisits } from "@/lib/analytics-data"
-
-// --- Fallback: In-memory store for environments without Vercel KV ---
-let inMemoryVisits: any[] = []
-let inMemoryUniqueVisitors: Set<string> = new Set()
-// --------------------------------------------------------------------
-
-const useKV = !!process.env.KV_REST_API_URL
+import { getVisits, useKV, inMemoryVisits, inMemoryUniqueVisitors, clearInMemoryData } from "@/lib/analytics-data"
 
 function parseUserAgent(userAgent: string) {
   const browsers = [
@@ -128,8 +121,7 @@ export async function DELETE() {
     if (useKV) {
       await kv.del("visits", "unique_visitors")
     } else {
-      inMemoryVisits = []
-      inMemoryUniqueVisitors = new Set()
+      clearInMemoryData()
     }
     return NextResponse.json({ success: true, message: "All visits data cleared" })
   } catch (error) {

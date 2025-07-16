@@ -1,12 +1,19 @@
 import { kv } from "@vercel/kv"
 
-const useKV = !!process.env.KV_REST_API_URL
+export const useKV = !!process.env.KV_REST_API_URL
 
-// --- Fallback: In-memory store for environments without Vercel KV ---
-const inMemoryVisits: any[] = []
-const inMemoryDownloads: any[] = []
-const inMemoryUniqueVisitors: Set<string> = new Set()
-// --------------------------------------------------------------------
+// --- Centralized In-Memory Store ---
+// We define and export these so all modules share the same instance.
+export let inMemoryVisits: any[] = []
+export let inMemoryDownloads: any[] = []
+export let inMemoryUniqueVisitors: Set<string> = new Set()
+
+export function clearInMemoryData() {
+  inMemoryVisits = []
+  inMemoryDownloads = []
+  inMemoryUniqueVisitors = new Set()
+}
+// ------------------------------------
 
 function getStartTime(period: string): number {
   const now = Date.now()

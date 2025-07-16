@@ -823,6 +823,10 @@ export default function Dashboard() {
           </Card>
         </div>
       </div>
+
+      <div className="fixed bottom-4 right-4 text-xs font-mono text-gray-600 bg-gray-900/50 px-2 py-1 rounded-md border border-gray-700/50">
+        v0.1.0
+      </div>
     </div>
   )
 }
