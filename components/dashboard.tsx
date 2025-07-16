@@ -31,39 +31,39 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { AnalyticsTracker } from "./analytics-tracker"
+// import { AnalyticsTracker } from "./analytics-tracker"
 
 // Кастомные стили для красивого скролла
 const scrollbarStyles = `
 .scrollbar-thin::-webkit-scrollbar {
-  width: 8px;
+width: 8px;
 }
 .scrollbar-thin::-webkit-scrollbar-track {
-  background: rgba(31, 41, 55, 0.2);
-  border-radius: 10px;
+background: rgba(31, 41, 55, 0.2);
+border-radius: 10px;
 }
 .scrollbar-thin::-webkit-scrollbar-thumb {
-  background: rgba(168, 85, 247, 0.5);
-  border-radius: 10px;
-  transition: all 0.3s ease;
+background: rgba(168, 85, 247, 0.5);
+border-radius: 10px;
+transition: all 0.3s ease;
 }
 .scrollbar-thin::-webkit-scrollbar-thumb:hover {
-  background: rgba(168, 85, 247, 0.7);
+background: rgba(168, 85, 247, 0.7);
 }
 .scrollbar-downloads::-webkit-scrollbar {
-  width: 8px;
+width: 8px;
 }
 .scrollbar-downloads::-webkit-scrollbar-track {
-  background: rgba(31, 41, 55, 0.2);
-  border-radius: 10px;
+background: rgba(31, 41, 55, 0.2);
+border-radius: 10px;
 }
 .scrollbar-downloads::-webkit-scrollbar-thumb {
-  background: rgba(16, 185, 129, 0.5);
-  border-radius: 10px;
-  transition: all 0.3s ease;
+background: rgba(16, 185, 129, 0.5);
+border-radius: 10px;
+transition: all 0.3s ease;
 }
 .scrollbar-downloads::-webkit-scrollbar-thumb:hover {
-  background: rgba(16, 185, 129, 0.7);
+background: rgba(16, 185, 129, 0.7);
 }
 `
 
@@ -624,7 +624,7 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-black">
-      <AnalyticsTracker />
+      {/* <AnalyticsTracker /> */}
       <div className="container mx-auto p-6 pt-20 space-y-8">
         {!useKV && isLoaded && (
           <div className="p-4 mb-6 bg-yellow-900/20 border border-yellow-500/30 rounded-lg text-yellow-300">
@@ -872,7 +872,7 @@ export default function Dashboard() {
       </div>
 
       <div className="fixed bottom-4 right-4 text-xs font-mono text-gray-600 bg-gray-900/50 px-2 py-1 rounded-md border border-gray-700/50">
-        v0.1.3
+        v0.1.5
       </div>
     </div>
   )

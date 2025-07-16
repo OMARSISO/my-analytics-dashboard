@@ -3,23 +3,34 @@ import { type NextRequest, NextResponse } from "next/server"
 import { getRedisClient } from "@/lib/redis"
 import { useKV, inMemoryVisits, inMemoryUniqueVisitors, clearInMemoryData } from "@/lib/analytics-data"
 
-const browsers = [
-  { name: "Chrome", pattern: /Chrome\/(\d+)/ },
-  { name: "Firefox", pattern: /Firefox\/(\d+)/ },
-  { name: "Safari", pattern: /Safari\/(\d+)/ },
-  { name: "Edge", pattern: /Edg\/(\d+)/ },
-  { name: "Opera", pattern: /OPR\/(\d+)/ },
-]
-const os = [
-  { name: "Windows 11", pattern: /Windows NT 10\.0.*Win64/ },
-  { name: "Windows 10", pattern: /Windows NT 10\.0/ },
-  { name: "macOS", pattern: /Mac OS X/ },
-  { name: "Linux", pattern: /Linux/ },
-  { name: "Android", pattern: /Android/ },
-  { name: "iOS", pattern: /iPhone|iPad/ },
-]
+const handleInMemoryVisit = (visitData: any) => {
+  const twentyFourHoursAgo = Date.now() - 24 * 60 * 60 * 1000
+  const recentVisit = inMemoryVisits.find((visit) => visit.ip === visitData.ip && visit.timestamp > twentyFourHoursAgo)
+  if (recentVisit) {
+    return { duplicate: true }
+  }
+  inMemoryVisits.push(visitData)
+  if (inMemoryVisits.length > 1000) inMemoryVisits.shift()
+  inMemoryUniqueVisitors.add(visitData.ip)
+  return { duplicate: false }
+}
 
-function parseUserAgent(userAgent: string) {
+const parseUserAgent = (userAgent: string) => {
+  const browsers = [
+    { name: "Chrome", pattern: /Chrome\/(\d+)/ },
+    { name: "Firefox", pattern: /Firefox\/(\d+)/ },
+    { name: "Safari", pattern: /Safari\/(\d+)/ },
+    { name: "Edge", pattern: /Edg\/(\d+)/ },
+    { name: "Opera", pattern: /OPR\/(\d+)/ },
+  ]
+  const os = [
+    { name: "Windows 11", pattern: /Windows NT 10\.0.*Win64/ },
+    { name: "Windows 10", pattern: /Windows NT 10\.0/ },
+    { name: "macOS", pattern: /Mac OS X/ },
+    { name: "Linux", pattern: /Linux/ },
+    { name: "Android", pattern: /Android/ },
+    { name: "iOS", pattern: /iPhone|iPad/ },
+  ]
   let browserName = "Unknown",
     osName = "Unknown"
   for (const browser of browsers) {
@@ -54,74 +65,71 @@ async function getCountryFromIP(ip: string) {
   }
 }
 
-const redisClient = await getRedisClient()
-
 export async function POST(request: NextRequest) {
-  try {
-    const userAgent = request.headers.get("user-agent") || ""
-    const ip = request.headers.get("x-forwarded-for") || request.headers.get("x-real-ip") || "127.0.0.1"
-    const cleanIP = ip.split(",")[0].trim()
-    const { browser, os } = parseUserAgent(userAgent)
-    const { country, countryName } = await getCountryFromIP(cleanIP)
-    const visitData = {
-      id: Date.now() + Math.random(),
-      date: new Date().toISOString().split("T")[0],
-      time: new Date().toLocaleTimeString("ru-RU"),
-      ip: cleanIP,
-      country,
-      countryName,
-      action: "visited",
-      browser,
-      os,
-      timestamp: Date.now(),
-    }
+  const userAgent = request.headers.get("user-agent") || ""
+  const ip = request.headers.get("x-forwarded-for") || request.headers.get("x-real-ip") || "127.0.0.1"
+  const cleanIP = ip.split(",")[0].trim()
+  const { browser, os } = parseUserAgent(userAgent)
+  const { country, countryName } = await getCountryFromIP(cleanIP)
+  const visitData = {
+    id: Date.now() + Math.random(),
+    date: new Date().toISOString().split("T")[0],
+    time: new Date().toLocaleTimeString("ru-RU"),
+    ip: cleanIP,
+    country,
+    countryName,
+    action: "visited",
+    browser,
+    os,
+    timestamp: Date.now(),
+  }
 
-    const redis = redisClient
-    if (useKV() && redis) {
+  const useKVResult = useKV()
+  const redisClient = await getRedisClient()
+
+  if (useKVResult && redisClient) {
+    try {
       const recentVisitKey = `visit:${cleanIP}`
-      const hasVisitedRecently = await redis.get(recentVisitKey)
+      const hasVisitedRecently = await redisClient.get(recentVisitKey)
       if (hasVisitedRecently) {
         return NextResponse.json({ success: true, message: "Recent visit found - not recorded", duplicate: true })
       }
-      await redis.lPush("visits", JSON.stringify(visitData))
-      await redis.lTrim("visits", 0, 999)
-      await redis.sAdd("unique_visitors", cleanIP)
-      await redis.set(recentVisitKey, "true", { EX: 24 * 60 * 60 }) // 24 hours expiration
-    } else {
-      const twentyFourHoursAgo = Date.now() - 24 * 60 * 60 * 1000
-      const recentVisit = inMemoryVisits.find((visit) => visit.ip === cleanIP && visit.timestamp > twentyFourHoursAgo)
-      if (recentVisit) {
+      await redisClient.lPush("visits", JSON.stringify(visitData))
+      await redisClient.lTrim("visits", 0, 999)
+      await redisClient.sAdd("unique_visitors", cleanIP)
+      await redisClient.set(recentVisitKey, "true", { EX: 24 * 60 * 60 })
+    } catch (redisError) {
+      console.error("Ошибка операции Redis, используется резервное хранилище в памяти для посещения:", redisError)
+      const { duplicate } = handleInMemoryVisit(visitData)
+      if (duplicate) {
         return NextResponse.json({ success: true, message: "Recent visit found - not recorded", duplicate: true })
       }
-      inMemoryVisits.push(visitData)
-      if (inMemoryVisits.length > 1000) inMemoryVisits.shift()
-      inMemoryUniqueVisitors.add(cleanIP)
     }
-    return NextResponse.json({ success: true, data: visitData })
-  } catch (error) {
-    console.error("Error in POST /api/analytics/visits:", error)
-    const errorMessage = error instanceof Error ? error.message : "An unknown error occurred"
-    return NextResponse.json(
-      { success: false, error: "Failed to record visit", details: errorMessage },
-      { status: 500 },
-    )
+  } else {
+    console.warn("Клиент Redis недоступен, используется резервное хранилище в памяти для посещения.")
+    const { duplicate } = handleInMemoryVisit(visitData)
+    if (duplicate) {
+      return NextResponse.json({ success: true, message: "Recent visit found - not recorded", duplicate: true })
+    }
   }
+
+  return NextResponse.json({ success: true, data: visitData })
 }
 
 export async function DELETE() {
   try {
-    const redis = redisClient
+    const redis = await getRedisClient()
     if (useKV() && redis) {
       await redis.del(["visits", "unique_visitors"])
     } else {
       clearInMemoryData()
     }
-    return NextResponse.json({ success: true, message: "All visits data cleared" })
+    return NextResponse.json({ success: true, message: "Все данные о посещениях очищены" })
   } catch (error) {
-    console.error("Error in DELETE /api/analytics/visits:", error)
-    const errorMessage = error instanceof Error ? error.message : "An unknown error occurred"
+    console.error("Ошибка в DELETE /api/analytics/visits:", error)
+    const errorMessage = error instanceof Error ? error.message : "Произошла неизвестная ошибка"
     return NextResponse.json(
-      { success: false, error: "Failed to delete visits", details: errorMessage },
+      { success: false, error: "Не удалось удалить посещения", details: errorMessage },
       { status: 500 },
     )
   }

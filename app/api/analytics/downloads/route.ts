@@ -3,6 +3,84 @@ import { type NextRequest, NextResponse } from "next/server"
 import { getRedisClient } from "@/lib/redis"
 import { useKV, inMemoryDownloads, clearInMemoryData } from "@/lib/analytics-data"
 
+const handleInMemoryDownload = (downloadData: any) => {
+  inMemoryDownloads.push(downloadData)
+  if (inMemoryDownloads.length > 1000) inMemoryDownloads.shift()
+}
+
+export async function POST(request: NextRequest) {
+  const useKVResult = useKV()
+  try {
+    const body = await request.json()
+    const { fileName, fileSize } = body
+    const userAgent = request.headers.get("user-agent") || ""
+    const ip = request.headers.get("x-forwarded-for") || request.headers.get("x-real-ip") || "127.0.0.1"
+    const cleanIP = ip.split(",")[0].trim()
+    const { browser, os } = parseUserAgent(userAgent)
+    const { country, countryName } = await getCountryFromIP(cleanIP)
+    const downloadData = {
+      id: Date.now() + Math.random(),
+      date: new Date().toISOString().split("T")[0],
+      time: new Date().toLocaleTimeString("ru-RU"),
+      ip: cleanIP,
+      country,
+      countryName,
+      action: "downloaded",
+      browser,
+      os,
+      fileName,
+      fileSize,
+      timestamp: Date.now(),
+    }
+
+    if (useKVResult) {
+      try {
+        const redis = await getRedisClient()
+        if (redis) {
+          await redis.lPush("downloads", JSON.stringify(downloadData))
+          await redis.lTrim("downloads", 0, 999)
+        } else {
+          console.warn("Клиент Redis недоступен, используется резервное хранилище в памяти для скачивания.")
+          handleInMemoryDownload(downloadData)
+        }
+      } catch (redisError) {
+        console.error("Ошибка операции Redis, используется резервное хранилище в памяти для скачивания:", redisError)
+        handleInMemoryDownload(downloadData)
+      }
+    } else {
+      handleInMemoryDownload(downloadData)
+    }
+
+    return NextResponse.json({ success: true, data: downloadData })
+  } catch (error) {
+    console.error("Критическая ошибка в POST /api/analytics/downloads:", error)
+    const errorMessage = error instanceof Error ? error.message : "Произошла неизвестная ошибка"
+    return NextResponse.json(
+      { success: false, error: "Не удалось записать скачивание", details: errorMessage },
+      { status: 500 },
+    )
+  }
+}
+
+export async function DELETE() {
+  try {
+    const redis = await getRedisClient()
+    if (useKV() && redis) {
+      await redis.del("downloads")
+    } else {
+      clearInMemoryData()
+    }
+    return NextResponse.json({ success: true, message: "Все данные о скачиваниях очищены" })
+  } catch (error) {
+    console.error("Ошибка в DELETE /api/analytics/downloads:", error)
+    const errorMessage = error instanceof Error ? error.message : "Произошла неизвестная ошибка"
+    return NextResponse.json(
+      { success: false, error: "Не удалось удалить скачивания", details: errorMessage },
+      { status: 500 },
+    )
+  }
+}
+
 function parseUserAgent(userAgent: string) {
   const browsers = [
     { name: "Chrome", pattern: /Chrome\/(\d+)/ },
@@ -50,68 +128,5 @@ async function getCountryFromIP(ip: string) {
   } catch (error) {
     console.error("Error getting country from IP:", error)
     return { country: "XX", countryName: "Неизвестно" }
-  }
-}
-
-export async function POST(request: NextRequest) {
-  const redis = await getRedisClient() // Moved to top level to avoid conditional hook call
-  try {
-    const body = await request.json()
-    const { fileName, fileSize } = body
-    const userAgent = request.headers.get("user-agent") || ""
-    const ip = request.headers.get("x-forwarded-for") || request.headers.get("x-real-ip") || "127.0.0.1"
-    const cleanIP = ip.split(",")[0].trim()
-    const { browser, os } = parseUserAgent(userAgent)
-    const { country, countryName } = await getCountryFromIP(cleanIP)
-    const downloadData = {
-      id: Date.now() + Math.random(),
-      date: new Date().toISOString().split("T")[0],
-      time: new Date().toLocaleTimeString("ru-RU"),
-      ip: cleanIP,
-      country,
-      countryName,
-      action: "downloaded",
-      browser,
-      os,
-      fileName,
-      fileSize,
-      timestamp: Date.now(),
-    }
-
-    if (useKV() && redis) {
-      await redis.lPush("downloads", JSON.stringify(downloadData))
-      await redis.lTrim("downloads", 0, 999)
-    } else {
-      inMemoryDownloads.push(downloadData)
-      if (inMemoryDownloads.length > 1000) inMemoryDownloads.shift()
-    }
-
-    return NextResponse.json({ success: true, data: downloadData })
-  } catch (error) {
-    console.error("Error in POST /api/analytics/downloads:", error)
-    const errorMessage = error instanceof Error ? error.message : "An unknown error occurred"
-    return NextResponse.json(
-      { success: false, error: "Failed to record download", details: errorMessage },
-      { status: 500 },
-    )
-  }
-}
-
-export async function DELETE() {
-  try {
-    const redis = await getRedisClient()
-    if (useKV() && redis) {
-      await redis.del("downloads")
-    } else {
-      clearInMemoryData()
-    }
-    return NextResponse.json({ success: true, message: "All downloads data cleared" })
-  } catch (error) {
-    console.error("Error in DELETE /api/analytics/downloads:", error)
-    const errorMessage = error instanceof Error ? error.message : "An unknown error occurred"
-    return NextResponse.json(
-      { success: false, error: "Failed to delete downloads", details: errorMessage },
-      { status: 500 },
-    )
   }
 }
