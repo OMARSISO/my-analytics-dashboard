@@ -509,6 +509,7 @@ export default function Dashboard() {
   const [isLoaded, setIsLoaded] = useState(false)
   const [loading, setLoading] = useState(true)
   const [period, setPeriod] = useState("day")
+  const [useKV, setUseKV] = useState(true) // Assume true initially to avoid flash of warning
 
   const [metrics, setMetrics] = useState({
     visitors: "0",
@@ -530,21 +531,24 @@ export default function Dashboard() {
   const loadAllData = async (currentPeriod: string) => {
     setLoading(true)
     try {
-      const [metricsRes, chartRes, visitsRes, downloadsRes] = await Promise.all([
+      const [metricsRes, chartRes, visitsRes, downloadsRes, statusRes] = await Promise.all([
         fetch(`/api/analytics/metrics?period=${currentPeriod}`),
         fetch(`/api/analytics/chart?period=${currentPeriod}`),
         fetch(`/api/analytics/visits?period=${currentPeriod}`),
         fetch(`/api/analytics/downloads?period=${currentPeriod}`),
+        fetch(`/api/analytics/status`),
       ])
       const metricsData = await metricsRes.json()
       const chartData = await chartRes.json()
       const visitsData = await visitsRes.json()
       const downloadsData = await downloadsRes.json()
+      const statusData = await statusRes.json()
 
       setMetrics(metricsData)
       setChartData(chartData.data || [])
       setVisitsLog(visitsData.visits || [])
       setDownloadsLog(downloadsData.downloads || [])
+      setUseKV(statusData.useKV)
     } catch (error) {
       console.error("Failed to load analytics data:", error)
     } finally {
@@ -603,6 +607,30 @@ export default function Dashboard() {
     <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-black">
       <AnalyticsTracker />
       <div className="container mx-auto p-6 pt-20 space-y-8">
+        {!useKV && isLoaded && (
+          <div className="p-4 mb-6 bg-yellow-900/20 border border-yellow-500/30 rounded-lg text-yellow-300">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 text-yellow-400 mt-0.5 flex-shrink-0" />
+              <div>
+                <h3 className="font-semibold">Режим Демонстрации</h3>
+                <p className="text-sm text-yellow-400/80">
+                  Хранилище Vercel KV не настроено. Данные хранятся в памяти и будут сброшены после перезагрузки. Для
+                  полноценной работы и сохранения статистики, пожалуйста,{" "}
+                  <a
+                    href="https://vercel.com/docs/storage/vercel-kv/quickstart"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline font-medium hover:text-yellow-200"
+                  >
+                    подключите KV хранилище
+                  </a>{" "}
+                  в настройках вашего проекта Vercel.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div
           className={`flex flex-col md:flex-row justify-between items-start md:items-center space-y-4 md:space-y-0 transition-all duration-1000 ${
             isLoaded ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-4"
@@ -825,7 +853,7 @@ export default function Dashboard() {
       </div>
 
       <div className="fixed bottom-4 right-4 text-xs font-mono text-gray-600 bg-gray-900/50 px-2 py-1 rounded-md border border-gray-700/50">
-        v0.1.1
+        v0.1.2
       </div>
     </div>
   )

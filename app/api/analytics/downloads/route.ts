@@ -39,23 +39,17 @@ function parseUserAgent(userAgent: string) {
 
 async function getCountryFromIP(ip: string) {
   if (ip === "127.0.0.1" || ip.startsWith("192.168.") || ip.startsWith("10.") || ip.startsWith("172.")) {
-    return { country: "RU", countryName: "Россия" }
+    return { country: "RU", countryName: "Россия (Локально)" }
   }
   try {
     const response = await fetch(`https://ipapi.co/${ip}/json/`, { headers: { "User-Agent": "ExLoad Analytics/1.0" } })
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
     const data = await response.json()
     if (data.error) throw new Error(data.reason || "IP API Error")
-    return { country: data.country_code || "RU", countryName: data.country_name || "Россия" }
+    return { country: data.country_code || "XX", countryName: data.country_name || "Неизвестно" }
   } catch (error) {
     console.error("Error getting country from IP:", error)
-    const fallbackCountries = [
-      { country: "RU", countryName: "Россия" },
-      { country: "US", countryName: "США" },
-      { country: "DE", countryName: "Германия" },
-      { country: "GB", countryName: "Великобритания" },
-    ]
-    return fallbackCountries[Math.floor(Math.random() * fallbackCountries.length)]
+    return { country: "XX", countryName: "Неизвестно" }
   }
 }
 
