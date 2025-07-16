@@ -3,8 +3,6 @@ import { type NextRequest, NextResponse } from "next/server"
 import { getRedisClient } from "@/lib/redis"
 import { useKV, inMemoryVisits, inMemoryUniqueVisitors, clearInMemoryData } from "@/lib/analytics-data"
 
-const useKVResult = useKV()
-
 const handleInMemoryVisit = (visitData: any) => {
   const twentyFourHoursAgo = Date.now() - 24 * 60 * 60 * 1000
   const recentVisit = inMemoryVisits.find((visit) => visit.ip === visitData.ip && visit.timestamp > twentyFourHoursAgo)
@@ -68,6 +66,7 @@ async function getCountryFromIP(ip: string) {
 }
 
 export async function POST(request: NextRequest) {
+  const useKVResult = useKV()
   const userAgent = request.headers.get("user-agent") || ""
   const ip = request.headers.get("x-forwarded-for") || request.headers.get("x-real-ip") || "127.0.0.1"
   const cleanIP = ip.split(",")[0].trim()
@@ -127,6 +126,7 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE() {
+  const useKVResult = useKV()
   console.log("[VISIT DELETE] Received request to clear statistics.")
   try {
     const redis = await getRedisClient()

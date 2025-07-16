@@ -586,14 +586,22 @@ export default function Dashboard() {
 
   const handleResetStats = async () => {
     try {
-      await Promise.all([
+      const results = await Promise.allSettled([
         fetch("/api/analytics/visits", { method: "DELETE" }),
         fetch("/api/analytics/downloads", { method: "DELETE" }),
       ])
+
+      results.forEach((result, index) => {
+        if (result.status === "rejected") {
+          console.error(`❌ Error resetting endpoint ${index}:`, result.reason)
+        }
+      })
+
+      // Всегда перезагружаем данные, даже если один из запросов на удаление не удался
       await loadAllData(period)
-      console.log("✅ Statistics reset successfully")
+      console.log("✅ Statistics reset process finished, data reloaded.")
     } catch (error) {
-      console.error("❌ Error resetting statistics:", error)
+      console.error("❌ Unexpected error in handleResetStats:", error)
     }
   }
 
@@ -872,7 +880,7 @@ export default function Dashboard() {
       </div>
 
       <div className="fixed bottom-4 right-4 text-xs font-mono text-gray-600 bg-gray-900/50 px-2 py-1 rounded-md border border-gray-700/50">
-        v0.1.6
+        v0.1.7
       </div>
     </div>
   )
